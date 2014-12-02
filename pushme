@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+
+STATUS="$1"
+JOBINFO="$2"
+
+function push_pushbullet () {
+    if [ "$(command -v curl)" ]; then
+        curl -s -u "${PUSH_TOKEN}:" -X POST -o /dev/null -H 'Content-Type: application/json' \
+            --data-binary "{\"type\": \"note\", \"title\": \"${TITLE}\", \"body\": \"${MESG}\"}" "${URL}"
+            PUSH_EXIT=$?
+        elif [ "$(command -v wget)" ]; then
+        wget -q -O /dev/null --user="${PUSH_TOKEN}" --password=''  --header='Content-Type: application/json' \
+            --post-data="{\"type\": \"note\", \"title\": \"${TITLE}\", \"body\": \"${MESG}\"}" "${URL}"
+            PUSH_EXIT=$?
+        else
+        echo "could not find curl or wget. exiting."
+        exit 1
+    fi
+    if [ "${PUSH_EXIT}" -gt 0 ]; then
+        echo "web call via curl or wget finished with non-zero exit code"
+    fi
+    exit ${PUSH_EXIT}
+}
+
+function push_notifymyandroid() {
+    if [ "$(command -v curl)" ]; then
+        curl -s -X POST -o /dev/null -d "content-type=text/html" \
+            -d "apikey=${PUSH_TOKEN}" -d "application=pushme" -d "event=${TITLE}" --data-binary "description=$(echo -e "${MESG}")" "${URL}"
+        PUSH_EXIT=$?
+    elif [ "$(command -v wget)" ]; then
+        wget -q -O /dev/null \
+            --post-data="apikey=${PUSH_TOKEN}&application=pushme&event=${TITLE}&description=$(echo -e "${MESG}")" "${URL}"
+        PUSH_EXIT=$?
+    else
+        echo "could not find curl or wget. exiting."
+        exit 1
+    fi
+    if [ "${PUSH_EXIT}" -gt 0 ]; then
+        echo "web call via curl or wget finished with non-zero exit code"
+    fi
+    exit ${PUSH_EXIT}
+}
+
+function set_url () {
+    case $1 in
+        "pushbullet")
+            export URL="https://api.pushbullet.com/v2/pushes"
+        ;;
+        "notifymyandroid")
+            export URL="https://www.notifymyandroid.com/publicapi/notify"
+        ;;
+        *)
+            export URL=""
+        ;;
+    esac
+}
+
+function build_title () {
+    # if the job name wasn't specified we set a default
+    if [ -z "${JOBINFO}" ]; then
+        JOBINFO="command"
+    fi
+
+    # now we check if the job is just a word
+    if  [[ "${JOBINFO}" =~ ^[a-zA-Z0-9_]+$ ]]; then
+        TITLE="${JOBINFO} on ${HOSTNAME}"
+
+        # we don't do anything if the provided status is an empty string
+        # if we get any number we assume success =0 and failure >0
+        # if it's any other string it's just complete
+        if [ "${STATUS}" ]; then
+            if [[ ! "${STATUS}" =~ ^-?[0-9]+$ ]]; then
+                TITLE="${TITLE} completed"
+            elif [ "${STATUS}" -eq 0 ]; then
+                TITLE="${TITLE} succeeded"
+            elif [ "${STATUS}" -ge 1 ]; then
+                TITLE="${TITLE} failed"
+            fi
+        fi
+    else
+        TITLE="${JOBINFO} ${STATUS}"
+    fi
+
+    export TITLE
+}
+
+function build_message () {
+    MESG="command completed at $(date)"
+
+    # now we grab the stdin if there was anything piped in
+    if read -t 0; then
+        while read line; do
+            MESG="${MESG}\n${line}"
+        done <&0
+    fi
+    export MESG
+}
+
+######################
+### main program
+######################
+
+# get the token
+if [ -z "${PUSHME}" ]; then
+    if [ -f "${HOME}/.pushme" ]; then
+        PUSHME=$(cat "${HOME}/.pushme")
+    else
+        echo "No PUSHME environment and ${HOME}/.pushme not found. exiting"
+        exit 1
+    fi
+fi
+
+# parse out the system we are pushing to
+PUSH_SYSTEM=${PUSHME/:*/}
+PUSH_TOKEN=${PUSHME/*:/}
+
+# set up the correct URL env
+set_url "${PUSH_SYSTEM}"
+# set up the TITLE env
+build_title
+# set up the MESG env
+build_message
+# push the message
+case $PUSH_SYSTEM in
+    "pushbullet")
+        push_pushbullet
+    ;;
+    "notifymyandroid")
+        push_notifymyandroid
+    ;;
+    *)
+        echo "don't know ${PUSH_SYSTEM}. exiting"
+        exit 1
+    ;;
+esac
