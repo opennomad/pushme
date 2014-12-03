@@ -56,7 +56,7 @@ It's also possible to pass a second parameter, which will be used to replace the
 
     pushme $? rsync
 
-will set the title of the message pushed to `rsync on <hostname> succeeded` of `$?` is 0, otherwise it will state that the command failed.
+will set the title of the message pushed to `rsync on <hostname> succeeded` if `$?` is 0, otherwise it will state that the command failed.
 
 If the second parameter is anything other than a single word, it is used to set the title of the message.
 
